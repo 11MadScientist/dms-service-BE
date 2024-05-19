@@ -1,0 +1,14 @@
+# Oracle Settings
+spring.datasource.url="Your database url"
+spring.datasource.username=username to access the database
+spring.datasource.password=password to access the database
+spring.datasource.driver-class-name=oracle.jdbc.driver.OracleDriver
+spring.web.resources.cache.cachecontrol.max-age=1
+
+
+# user profile settings
+default.disable.value=N
+
+# jwt settings
+spring.security.oauth2.authorization.jwt.key-value=shhkeepitasecret
+spring.security.oauth2.authorization.jwt.token-validity-duration=3600
