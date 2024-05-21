@@ -217,7 +217,7 @@ public class GoogleDriveAdapter implements DMSAdapter {
       } else {
         String folderIdQuery = "sharedWithMe".equals(folderId) ?
             folderId : 
-            String.format("'%s' in parents", folderId);
+            String.format("'%s' in parents", escapeSpecialChars(folderId));
         FileList result = service.files().list()
             .setQ(folderIdQuery + " and trashed=false")
             .setFields("nextPageToken, files(id, name, mimeType, size, createdTime, modifiedTime)")
@@ -261,16 +261,6 @@ public class GoogleDriveAdapter implements DMSAdapter {
       String fileName = fileInfo.getName();
       String mimeType = fileInfo.getMimeType();
       String fileType = fileInfo.getFileType();
-      
-      // check if file extension matches mimetype, if not, add correct file extension to
-      if(StringUtils.isNotBlank(fileType)) {
-        List<String> detectedExtensions = new ArrayList<>(Arrays.asList(MimeTypes.findExtensionsByMimeTypes(mimeType, false)));
-        
-        if(!detectedExtensions.contains(fileType)) {
-          fileName += "." + detectedExtensions.get(0);
-        }
-      }
-      
 
       response.setContentType(Objects.requireNonNullElse(downloadMimeMap.get(mimeType), mimeType));
       response.setHeader("Content-Disposition", "attachment; filename=\""+ fileName + "\"");
@@ -470,7 +460,7 @@ public class GoogleDriveAdapter implements DMSAdapter {
     if(StringUtils.isNotBlank(conversionFileType)) {
       name += "."+conversionFileType;
     } else { // check if file extension matches the mimetype, if not, then append the correct mimetype
-      name = addExtensionIfIncorrect(getExtensionFromFileName(name), name, mimeType);
+      name = addExtensionIfIncorrect(name, mimeType);
     }
     
     FileInfoDTO fileInfo = new FileInfoDTO();
@@ -524,19 +514,25 @@ public class GoogleDriveAdapter implements DMSAdapter {
   }
   
   /**
-   * in google drive, when you upload new version, google drive will not change the file extension
-   * so the extension for that new version will be wrong, and it will be treated the wrong way, need to 
+   * in google drive, when you upload new version, it will not change the file extension
+   * so the extension for that new version will be wrong if the new file version's extension 
+   * does not match the previous version's, and it will be treated the wrong way, need to 
    * append the correct file extension.
    * @param fileExtension
    * @param fileName
    * @param mimeType
    * @return
    */
-  private String addExtensionIfIncorrect(String fileExtension, String fileName, String mimeType) {
+  private String addExtensionIfIncorrect(String fileName, String mimeType) {
+    String fileExtension = getExtensionFromFileName(fileName);
     if(StringUtils.isNotBlank(fileExtension)) {
       List<String> detectedExtensions = new ArrayList<>(Arrays.asList(MimeTypes.findExtensionsByMimeTypes(mimeType, false)));
       
+      // if the file extension is not present in the detected extensions, 
+      // that means mimetype and file extension is a mismatch
       if(!detectedExtensions.contains(fileExtension)) {
+        // there are mimetypes that can have multiple extensions (ex: image/jpeg => [.jpg, .jpeg, .jpe])
+        // in this case, we can just use the first value.
         fileName += "." + detectedExtensions.get(0);
       }
     }
@@ -582,6 +578,22 @@ public class GoogleDriveAdapter implements DMSAdapter {
    return new Date(date.getValue());
  }
  
+ /**
+  * Custom escape special characters method for Google Drive API
+  * @param input
+  * @return
+  */
+ private String escapeSpecialChars(String input) {
+   // escape both backslashes and single quotes
+   return input.replaceAll("([\\\\'])", "\\\\$1");
+ }
+ 
+ /**
+  * Handles the httpresponse exception
+  * TODO
+  * @param e
+  * @return
+  */
  private Exception handleGoogleException(HttpResponseException e) {
    var statusCode = e.getStatusCode();
    String message = e.getMessage();
