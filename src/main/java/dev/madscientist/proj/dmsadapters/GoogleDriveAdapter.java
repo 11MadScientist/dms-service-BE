@@ -225,7 +225,6 @@ public class GoogleDriveAdapter implements DMSAdapter {
             .setIncludeItemsFromAllDrives(true)
             .setOrderBy("folder, name asc").execute();
 
-        LOG.info("Number of files retrieved: {}", result.getFiles().size());
         result.getFiles().forEach(file -> {
           files.add(parseFileToFileInfo(file, folderId));
         });
@@ -240,14 +239,7 @@ public class GoogleDriveAdapter implements DMSAdapter {
   public FileInfoDTO getFileInfo(Long userId, String fileId) throws Exception {
     Drive service = createDriveService(userId);
     
-    var file = service.files().get(fileId)
-        .setFields("id, name, mimeType, size, createdTime, modifiedTime, trashed")
-        .setSupportsAllDrives(true)
-        .execute();
-    
-    if(file.getTrashed()) {
-      throw new FileNotFoundException();
-    }
+    var file = getGoogleFileInfo(service, escapeSpecialChars(fileId));
     
     return parseFileToFileInfo(file, null);
   }
@@ -258,16 +250,17 @@ public class GoogleDriveAdapter implements DMSAdapter {
     
     try(var outputStream = response.getOutputStream()) {
       String fileId = fileInfo.getId();
-      String fileName = fileInfo.getName();
-      String mimeType = fileInfo.getMimeType();
-      String fileType = fileInfo.getFileType();
-
+      
+      Drive service = createDriveService(userId);
+      var file = getGoogleFileInfo(service, escapeSpecialChars(fileId));
+      
+      // get info from google drive to avoid error if file was updated or info sent was tampered.
+      String fileName = file.getName();
+      String mimeType = file.getMimeType();
+      
       response.setContentType(Objects.requireNonNullElse(downloadMimeMap.get(mimeType), mimeType));
       response.setHeader("Content-Disposition", "attachment; filename=\""+ fileName + "\"");
-
-      Drive service = createDriveService(userId);
  
-      
       String downloadMimeType = downloadMimeMap.get(mimeType);
       if(StringUtils.isNotBlank(downloadMimeType)) {
         service.files()
@@ -292,6 +285,9 @@ public class GoogleDriveAdapter implements DMSAdapter {
         fileMetadata.setName(file.getOriginalFilename());
         fileMetadata.setParents(List.of(parentId));
         InputStreamContent mediaContent = new InputStreamContent(file.getContentType(), file.getInputStream());
+        
+        // check first if folder is not binned before uploading
+        getGoogleFileInfo(service, parentId);
         
         service.files()
             .create(fileMetadata, mediaContent)
@@ -432,9 +428,26 @@ public class GoogleDriveAdapter implements DMSAdapter {
     adapterInfo.setAuthInfo(json.toString());
 
     adapterInfoService.save(adapterInfo);
-
   }
   
+  private File getGoogleFileInfo(Drive service, String folderId) throws Exception {
+    File file = service.files().get(folderId)
+        .setFields("id, name, mimeType, size, createdTime, modifiedTime, trashed")
+        .setSupportsAllDrives(true)
+        .execute();
+    if (file.getTrashed()) {// should not access folder/file that is binned
+      throw new FileNotFoundException(String.format("File not found: %s", folderId));
+    }
+    return file;
+  }
+  
+  
+  /**
+   * creates folder entity
+   * @param id
+   * @param folderName
+   * @return
+   */
   private FileInfoDTO createFolder(String id, String folderName) {
     FileInfoDTO fileInfo = new FileInfoDTO();
     fileInfo.setId(id);
